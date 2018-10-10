@@ -3,27 +3,24 @@ import tensorflow as tf
 import numpy as np
 from tensorflow import keras
 
-# Check accuracy of ensemble on test data
-def accuracy(predictions, labels):
-  correct_predictions = tf.equal(tf.argmax(predictions, 1), labels)
-  accuracy = tf.reduce_mean(tf.cast(correct_predictions, tf.float32))
-  return accuracy
-
 # "For MNIST, we used an MLP with 3-hidden layers with 200 hidden units per
 #  layer and ReLU non-linearities with batch normalization. "
 def create_model(K, T):
     return tf.keras.models.Sequential([
            tf.keras.layers.Flatten(),
-           tf.keras.layers.BatchNormalization(),
            tf.keras.layers.Dense(200, activation=tf.nn.relu),
            tf.keras.layers.BatchNormalization(),
            tf.keras.layers.Dense(200, activation=tf.nn.relu),
            tf.keras.layers.BatchNormalization(),
            tf.keras.layers.Dense(200, activation=tf.nn.relu),
            tf.keras.layers.BatchNormalization(),
-           tf.keras.layers.Lambda(lambda x: x / T), # add temperature to softmax
-           tf.keras.layers.Dense(K, activation=tf.nn.softmax)
+           tf.keras.layers.Dense(K)
            ])
+
+# Need own loss function that converts logits to probabilities
+def loss(y_true, y_pred):
+    y_pred = tf.nn.softmax(y_pred)
+    return tf.keras.losses.sparse_categorical_crossentropy(y_true, y_pred)
 
 class EnsembleModel(object):
     def __init__(self, M, K, T, learning_rate):
@@ -41,8 +38,7 @@ class EnsembleModel(object):
         AdamOptimizer = tf.keras.optimizers.Adam(lr=learning_rate)
         for i in range(M):
             self.models[i].compile(optimizer=AdamOptimizer,
-            loss='sparse_categorical_crossentropy',
-            metrics=['accuracy'])
+            loss=loss)
 
     def train(self, x_train, y_train, batch_size, num_epochs):
         # Train the enemble
@@ -51,13 +47,18 @@ class EnsembleModel(object):
             self.models[i].fit(x_train, y_train,
             epochs=num_epochs, batch_size=batch_size, shuffle=True)
 
-    def predict(self, x_test):
-        # Make predictions for each NN and combine it
+
+# From: http://www.ttic.edu/dl/dark14.pdf
+# "If we have the ensemble, we can divide the averaged logits from the ensemble by a
+# “temperature” to get a much softer distribution"
+    def predict(self, x_test, M):
+        assert(M <= self.M)
+        # Calculate the averaged logits
         sumPredictions = tf.zeros((x_test.shape[0], self.K))
-        for i in range(self.M):
+        for i in range(M):
             prediction = self.models[i].predict(x_test)
             sumPredictions = tf.add(sumPredictions, prediction)
-        return tf.divide(sumPredictions, self.M)
+        return tf.divide(sumPredictions, M)
 
     def evaluate_all(self, x_test, y_test):
         #Check predictions of each individual NN and the total
@@ -66,25 +67,25 @@ class EnsembleModel(object):
             loss, acc = self.models[i].evaluate(x_test, y_test)
             print("Loss: " + str(loss) + " and accuracy: " + str(acc*100.0) + " of model " + str(i))
 
-    def accuracy(self, sess, x_test, y_test):
-        predictions = self.predict(x_test)
-        acc = accuracy(predictions, y_test).eval()
-        acc2 = accuracy2(predictions, y_test).eval()
+    def accuracy(self, sess, x_test, y_test, M):
+        y_pred = tf.nn.softmax(self.predict(x_test, M))
+        y_true = np.eye(self.K)[y_test]
+        acc = tf.reduce_mean(tf.keras.metrics.categorical_accuracy(y_true, y_pred)).eval()
         with sess.as_default():
-            print("\nAccuracy of ensemble: ", acc , "2: ", acc2)
+            print("\nAccuracy of ensemble: ", acc)
         return acc
 
-    def NLL(self, sess, x_test, y_test):
+    def NLL(self, sess, x_test, y_test, M):
         with sess.as_default():
-            predictions = self.predict(x_test)
-            nll = tf.keras.losses.sparse_categorical_crossentropy(y_test, predictions)
+            y_pred = tf.nn.softmax(self.predict(x_test, M))
+            nll = tf.keras.losses.sparse_categorical_crossentropy(y_test, y_pred)
             nll = tf.reduce_mean(nll).eval()
             print("\nNLL of ensemble model: ", nll)
             return nll
 
-    def brier_score(self, sess, x_test, y_test):
+    def brier_score(self, sess, x_test, y_test, M):
         with sess.as_default():
-            y_pred = self.predict(x_test)
+            y_pred = tf.nn.softmax(self.predict(x_test, M))
             y_true = np.eye(self.K)[y_test]
             bs = tf.reduce_mean(tf.keras.losses.mean_squared_error(y_true, y_pred)).eval()
             print("\nBrier score of ensemble model: ", bs)

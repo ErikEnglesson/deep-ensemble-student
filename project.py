@@ -1,9 +1,13 @@
 import ensemble as e
 import distillation as d
 import tensorflow as tf
-import matplotlib.pyplot as plt
 import numpy as np
 import random as rn
+from utils import load_data, get_network_shape, classification_plots
+
+import matplotlib
+matplotlib.use('GTK3Cairo')
+from matplotlib import pyplot as plt
 
 # -- To get relatively consistent results --
 np.random.seed(42)
@@ -11,93 +15,98 @@ rn.seed(12345)
 
 sess = tf.InteractiveSession()
 
+def initialize_teacher_parameters(network_shape, max_nets):
+    parameters = {}
+    parameters['learning_rate'] = 0.001 # was 0.001
+    parameters['batch_size']    = 900 # was 1000
+    parameters['epochs']        = 20 # was 10
+    parameters['ensemble_nets'] = max_nets
+    parameters['network_shape'] = network_shape
+    parameters['type'] = 'CLASSIFICATION'
+
+    return parameters
+
+def initialize_student_parameters(teacher_parameters):
+    parameters = {}
+    parameters['learning_rate'] = 0.0003 # was 0.001 or 0.01
+    parameters['batch_size']    = 1000   # was 500 or 1000
+    parameters['epochs']        = 3000   # was 6000 but try 3000
+    parameters['network_shape'] = network_shape
+    parameters['temperature'] = 1
+    parameters['type'] = 'CLASSIFICATION'
+
+    return parameters
+
+def create_validation_set(x_train, y_train, num_validation):
+    # --  Shuffle training data --
+    #p = np.random.permutation(x_train.shape[0])
+    #x_train = x_train[p,:,:]
+    #y_train = y_train[p]
+
+    # -- Extract validation set --
+    x_val = x_train[:num_validation, :,:]
+    y_val = y_train[:num_validation]
+
+    # -- Update training set --
+    x_train_new = x_train[num_validation:,:,:]
+    y_train_new = y_train[num_validation:]
+
+    return (x_train_new, y_train_new), (x_val, y_val)
+
 # -- Load MNIST dataset --
-mnist = tf.keras.datasets.mnist
-(x_train, y_train),(x_test, y_test) = mnist.load_data()
-x_train, x_test = x_train / 255.0, x_test / 255.0
+(x_train, y_train),(x_test, y_test) = load_data(42, 0.1, 'mnist')
+(x_train, y_train),(x_val, y_val) = create_validation_set(x_train, y_train, 10000)
+network_shape = get_network_shape(x_train, 'mnist')
 
-# -- Parameters --
-temperature = 20        # Temperature used for the distillation process
-K = 10                 # Number of classes
-lr = 0.001             # Learning rate
-batch_size = 100
-num_epochs = 10
-
-max_nets = 15
+max_nets = 1
 num_nets = np.arange(1,max_nets+1)
 
 # -- Plotting variables --
-ensemble_error = list()
-ensemble_nll = list()
-ensemble_brier = list()
-distilled_error = list()
-distilled_nll = list()
-distilled_brier = list()
+nll_history = {}
+nll_history['teacher'] = list()
+nll_history['student'] = list()
+
+err_history = {}
+err_history['teacher'] = list()
+err_history['student'] = list()
 
 # -- Create and train ensemble model --
 # This model contains max_nets nets and whenever we want to predict using an
 # ensemble of M(<max_nets) nets we take the average prediction of the M first nets.
-ensemble_model = e.EnsembleModel(max_nets, K, temperature, lr)
-ensemble_model.train(x_train, y_train, batch_size, num_epochs)
+
+teacher_parameters = initialize_teacher_parameters(network_shape, max_nets)
+teacher = e.EnsembleModel(teacher_parameters)
+teacher_history = teacher.train(x_train, y_train, x_val, y_val)
+
+nll_history = {}
+nll_history['teacher'] = list()
+nll_history['student'] = list()
+
+err_history = {}
+err_history['teacher'] = list()
+err_history['student'] = list()
 
 for M in num_nets:
-    print("Number of nets: ", M)
+    print("\n\nNumber of nets: ", M)
 
     # -- Create and train distilled model based on ensemble of M nets --
-    distilled_model = d.DistilledModel(K, temperature, lr, ensemble_model)
-    distilled_model.train(sess, x_train, y_train, batch_size, num_epochs = 80, M=M)
+    student_parameters = initialize_student_parameters(teacher_parameters)
+    student = d.DistilledModel(teacher, student_parameters)
+    history = student.train(x_train, y_train, x_val, y_val, M=M)
 
-    # -- Uses the M first nets in ensemble_model to calculate acc/NLL/brier --
-    ensemble_error.append( (1.0 - ensemble_model.accuracy(sess, x_test, y_test, M))*100 )
-    ensemble_nll.append( ensemble_model.NLL(sess, x_test, y_test, M) )
-    ensemble_brier.append( ensemble_model.brier_score(sess, x_test, y_test, M) )
+    #plt.figure(M+max_nets+10)
+    #plt.plot(history.history['loss'])
+    #plt.plot(history.history['val_loss'])
+    #plt.title('student loss with M: ' + str(M))
+    #plt.ylabel('loss')
+    #plt.xlabel('epoch')
+    #plt.legend(['train', 'validation'], loc='upper left')
 
-    distilled_train_acc = distilled_model.accuracy(sess, x_train, y_train)
-    distilled_error.append( (1.0 - distilled_model.accuracy(sess, x_test, y_test))*100 )
-    distilled_nll.append( distilled_model.NLL(sess, x_test, y_test) )
-    distilled_brier.append( distilled_model.brier_score(sess, x_test, y_test) )
+    # -- Uses the M first nets in teacher to calculate acc/NLL/brier --
+    nll_history['teacher'].append(teacher.NLL(sess, x_val, y_val, M))
+    nll_history['student'].append(student.NLL(sess, x_val, y_val))
 
-# -- Plot classification error, NLL and Brier score as a function of number of nets --
-plt.subplot(131)
-plt.xlabel('Number of nets')
-plt.title('Classification Error')
-red, = plt.plot(num_nets, ensemble_error, 'r')
-blue, = plt.plot(num_nets, distilled_error, 'b')
-plt.legend([red,blue], ['Ensemble', 'Distilled'])
-plt.xticks(np.arange(0, max_nets+1, 5))
-plt.yticks(np.arange(1.0, 2.4, 0.2))
+    err_history['teacher'].append((1.0 - teacher.accuracy(sess, x_val, y_val, M))*100)
+    err_history['student'].append((1.0 - student.accuracy(sess, x_val, y_val))*100)
 
-plt.subplot(132)
-plt.xlabel('Number of nets')
-plt.title('NLL')
-red, = plt.plot(num_nets, ensemble_nll, 'r')
-blue, = plt.plot(num_nets, distilled_nll, 'b')
-plt.legend([red,blue], ['Ensemble', 'Distilled'])
-plt.xticks(np.arange(0, max_nets+1, 5))
-plt.yticks(np.arange(0.02, 0.16, 0.02))
-
-plt.subplot(133)
-plt.xlabel('Number of nets')
-plt.title('Brier Score')
-red, = plt.plot(num_nets, ensemble_brier, 'r')
-blue, = plt.plot(num_nets, distilled_brier, 'b')
-plt.legend([red,blue], ['Ensemble', 'Distilled'])
-plt.xticks(np.arange(0, max_nets+1, 5))
-plt.yticks(np.arange(0.0014, 0.0034, 0.0002))
-
-plt.show()
-
-
-# Next up:
-# Add plotting
-#  - Start by recreating the Figure 2 (a) plot?
-# -- Clean up plotting code
-# Add adversarial training
-# -- To do this: Have to rewrite and use custom estimator(to be able to calculate gradient in loss function)?
-# -- Can't I just send in my model instead of lambda_const here(or does that only work for constants?): https://github.com/TropComplique/knowledge-distillation-keras/blob/master/knowledge_distillation_for_mobilenet.ipynb
-# -- and do something like this: https://github.com/tensorflow/models/blob/1af55e018eebce03fb61bba9959a04672536107d/research/adversarial_text/adversarial_losses.py#L59
-# Implement regression part
-# Implement VGG-style convnet on SVHN dataset? - See https://keras.io/getting-started/sequential-model-guide/ for VGG convnet or vgg16 builtin model?
-# Have a look at auto encoders and variational auto encoders
-# Add way to store ensemble models. Then I can iterate quicker to improve students.(No training of ensembles)
-# Can I add acc, nll, brier as metrics to training and the get from eval or something? Does not work for ensemble but for distilled right?
+classification_plots(num_nets, max_nets, err_history, nll_history, teacher_history)

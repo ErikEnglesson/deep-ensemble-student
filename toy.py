@@ -1,5 +1,5 @@
-import ensemble as e
-import distillation as d
+import teacher as t
+import student as s
 import tensorflow as tf
 import numpy as np
 import random as rn
@@ -58,7 +58,7 @@ y_true = np.power(x_true, 3)
 
 # --- Train teacher ---
 teacher_parameters = initialize_teacher_parameters(network_shape)
-teacher = e.EnsembleModel(teacher_parameters)
+teacher = t.RegressionTeacherModel(teacher_parameters)
 teacher_history = teacher.train(x_train_n, y_train, x_test, y_test)
 
 #np.random.seed(42)
@@ -66,7 +66,7 @@ teacher_history = teacher.train(x_train_n, y_train, x_test, y_test)
 
 # --- Train student ---
 student_parameters = initialize_student_parameters(teacher_parameters)
-student = d.DistilledModel(teacher, student_parameters)
+student = s.RegressionStudentModel(teacher, student_parameters)
 student_history = student.train(x_train_n, y_train, x_test, y_test, teacher_parameters['ensemble_nets'])
 
 plt.figure(200)

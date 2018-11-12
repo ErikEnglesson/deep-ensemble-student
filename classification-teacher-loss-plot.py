@@ -1,5 +1,4 @@
-import ensemble as e
-import distillation as d
+import teacher as t
 import tensorflow as tf
 import numpy as np
 import random as rn
@@ -21,7 +20,6 @@ def initialize_teacher_parameters(network_shape, max_nets):
     parameters['epochs']        = 200 # was 10
     parameters['ensemble_nets'] = max_nets
     parameters['network_shape'] = network_shape
-    parameters['type'] = 'CLASSIFICATION'
 
     return parameters
 
@@ -39,7 +37,7 @@ network_shape = get_network_shape('cifar10')
 # -- Create and train ensemble model --
 num_nets_teacher = 1
 teacher_parameters = initialize_teacher_parameters(network_shape, num_nets_teacher)
-teacher = e.EnsembleModel(teacher_parameters)
+teacher = t.ClassificationTeacherModel(teacher_parameters)
 teacher_history = teacher.train(x_train, y_train, x_val, y_val)
 
 plt.figure(1)

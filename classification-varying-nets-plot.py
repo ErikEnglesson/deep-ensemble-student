@@ -1,5 +1,5 @@
-import ensemble as e
-import distillation as d
+import teacher as t
+import student as s
 import tensorflow as tf
 import numpy as np
 import random as rn
@@ -32,7 +32,6 @@ def initialize_teacher_parameters(network_shape, max_nets):
     parameters['epochs']        = 200 # was 10
     parameters['ensemble_nets'] = max_nets
     parameters['network_shape'] = network_shape
-    parameters['type'] = 'CLASSIFICATION'
 
 # These parameters were used for mnist:
 # lr=0.001, bs=1000, e=10
@@ -52,7 +51,6 @@ def initialize_student_parameters(teacher_parameters):
     parameters['dropout_rate1'] = 0.25
     parameters['dropout_rate2'] = 0.25
     parameters['dropout_rate3'] = 0.5
-    parameters['type'] = 'CLASSIFICATION'
 
     return parameters
 
@@ -75,7 +73,7 @@ num_nets = np.arange(1,num_nets_teacher+1)
 # ensemble of M(<num_nets_teacher) nets we take the average prediction of the M first nets.
 
 teacher_parameters = initialize_teacher_parameters(network_shape, num_nets_teacher)
-teacher = e.EnsembleModel(teacher_parameters)
+teacher = t.ClassificationTeacherModel(teacher_parameters)
 #teacher_history = teacher.train(x_train, y_train, x_val, y_val)
 
 for i in range(num_nets_teacher):
@@ -93,27 +91,27 @@ for i in range(num_nets_teacher):
     #teacher.models[0] = loaded_model
     #teacher.NLL(sess, x_val, y_val, 1)
 
-# Create and train distilled model based on teacher using a SINGLE network
+# Create and train student model based on teacher using a SINGLE network
 student_parameters = initialize_student_parameters(teacher_parameters)
-student = d.DistilledModel(teacher, student_parameters)
+student = s.ClassificationStudentModel(teacher, student_parameters)
 student_history = student.train(x_train, y_train, x_val, y_val, M=1)
 
 debug_student_plots = False
 
 # Create plotting variables
 history = {}
-history['nll-teacher-v'] = list()
-history['nll-student-v'] = list()
-history['nll-teacher-test'] = list()
-history['nll-student-test'] = list()
+history['nll-teacher-v']      = list()
+history['nll-student-v']      = list()
+history['nll-teacher-test']   = list()
+history['nll-student-test']   = list()
 
-history['err-teacher-v'] = list()
-history['err-student-v'] = list()
-history['err-teacher-test'] = list()
-history['err-student-test'] = list()
+history['err-teacher-v']      = list()
+history['err-student-v']      = list()
+history['err-teacher-test']   = list()
+history['err-student-test']   = list()
 
-history['brier-teacher-v'] = list()
-history['brier-student-v'] = list()
+history['brier-teacher-v']    = list()
+history['brier-student-v']    = list()
 history['brier-teacher-test'] = list()
 history['brier-student-test'] = list()
 

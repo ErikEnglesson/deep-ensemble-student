@@ -1,8 +1,8 @@
 from __future__ import print_function
 import sys
 
-import ensemble as e
-import distillation as d
+import teacher as t
+import student as s
 import tensorflow as tf
 import numpy as np
 import random as rn
@@ -23,7 +23,6 @@ def initialize_teacher_parameters(network_shape, max_nets):
     parameters['epochs']        = 200 # was 10
     parameters['ensemble_nets'] = max_nets
     parameters['network_shape'] = network_shape
-    parameters['type'] = 'CLASSIFICATION'
 
     # These parameters were used for mnist:
     # lr=0.001, bs=1000, e=10
@@ -44,8 +43,6 @@ def initialize_student_parameters(teacher_parameters):
     parameters['dropout_rate1'] = 0.25
     parameters['dropout_rate2'] = 0.25
     parameters['dropout_rate3'] = 0.5
-
-    parameters['type'] = 'CLASSIFICATION'
 
     return parameters
 
@@ -73,7 +70,7 @@ def generate_teacher_per_fold(datasets, teacher_parameters):
     for k in range(num_folds):
         (x_train_k, y_train_k), (x_val_k, y_val_k) = datasets[k]
 
-        teacher = e.EnsembleModel(teacher_parameters)
+        teacher = t.ClassificationTeacherModel(teacher_parameters)
         #teacher.train(x_train_k, y_train_k, x_val_k, y_val_k)
 
         json_file = open('models/teacher-model.json', 'r')
@@ -148,7 +145,7 @@ def evaluate_student_parameters_cv(datasets, teachers, num_nets_teacher, metric,
         teacher = teachers[k]
 
         # Train a student using the current fold and teacher
-        student = d.DistilledModel(teacher, student_parameters)
+        student = s.ClassificationStudentModel(teacher, student_parameters)
         history = student.train(x_train_k, y_train_k, x_val_k, y_val_k, M=num_nets_teacher)
 
         if debug_plot:

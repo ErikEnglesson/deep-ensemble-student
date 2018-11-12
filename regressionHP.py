@@ -1,5 +1,5 @@
-import ensemble as e
-import distillation as d
+import teacher as t
+import student as s
 import tensorflow as tf
 import numpy as np
 import random as rn
@@ -37,7 +37,6 @@ def initialize_teacher_parameters(network_shape):
     parameters['epochs']        = 40
     parameters['ensemble_nets'] = 1
     parameters['network_shape'] = network_shape
-    parameters['type'] = 'REGRESSION'
     # on kin8nm:
     # lr= 0.00001, bs=1, e=40, M=1 => val_loss of -1.2345 (consistently going down)
     # lr= 0.0001   -      ||  -    => val_loss of -1.8761
@@ -60,7 +59,6 @@ def initialize_student_parameters(teacher_parameters):
     # 0.5, 32, 1000 => 2.01?
     # 0.1, 1, 40    => 2.01 too, bit noisy though
     parameters['network_shape'] = network_shape
-    parameters['type'] = 'REGRESSION'
 
     return parameters
 
@@ -94,7 +92,7 @@ for i in range(num_subiterations):
     (x_train, y_train), (x_test, y_test) = load_data(i, 0.1, dataset_name)
     (x_train, y_train), (x_test, y_test) = normalize(x_train,y_train,x_test,y_test)
     datasets.append( ((x_train, y_train), (x_test, y_test)) )
-    teacher = e.EnsembleModel(teacher_parameters)
+    teacher = t.RegressionTeacherModel(teacher_parameters)
     teacher.train(x_train, y_train, x_test, y_test)
     teacher_models.append(teacher)
 
@@ -131,14 +129,14 @@ for j in range(num_parameters):
         #print("network_shape: ", network_shape)
 
         # -- Create and train teacher --
-        #teacher = e.EnsembleModel(teacher_parameters)
+        #teacher = e.RegressionTeacherModel(teacher_parameters)
         #teacher_history = teacher.train(x_train, y_train, x_test, y_test)
         teacher = teacher_models[i]
 
 
         # -- Create and train student(using all nets of the teacher) --
 
-        student = d.DistilledModel(teacher, student_parameters)
+        student = s.RegressionStudentModel(teacher, student_parameters)
         student_history = student.train(x_train, y_train, x_test, y_test, M)
 
         # -- Add NLL of each model for printing --

@@ -4,20 +4,10 @@ import numpy as np
 from tensorflow import keras
 from utils import create_classification_model, create_regression_model
 
-# "For MNIST, we used an MLP with 3-hidden layers with 200 hidden units per
-#  layer and ReLU non-linearities with batch normalization. "
-
-# Need own loss function that converts logits to probabilities
 def classification_loss(y_true, logits):
-    y_pred = tf.nn.softmax(logits)
-    # "In the case of multi-class K-way classification, the popular softmax
-    # cross entropy loss is equivalent to the log likelihood and is a proper
-    # scoring rule. "
+    y_true_onehot = tf.one_hot(tf.cast(y_true, tf.int32), 10)
+    return tf.nn.softmax_cross_entropy_with_logits_v2(labels=y_true_onehot, logits=logits)
 
-    # TODO: Try using tf.softmax_cross_entropy_with_logits?
-    return keras.losses.sparse_categorical_crossentropy(y_true, y_pred)
-
-# Need own loss function that calculates Gaussian NLL
 def regression_loss(y_true, y_pred):
 
     # y_pred contains tuples of mean, variances
@@ -26,7 +16,6 @@ def regression_loss(y_true, y_pred):
     var_pred  = y_pred[:,1]
     mean_true = y_true[:,0]
 
-    #var_pred_clipped = tf.keras.backend.clip(tf.exp(var_pred), 1E-4, 1E+100)
     term1 = tf.divide(tf.log(var_pred),2.0)
 
     numerator   = tf.square(tf.subtract(mean_true,mean_pred))
@@ -34,13 +23,6 @@ def regression_loss(y_true, y_pred):
     term2 = tf.divide(numerator,denominator)
     # TODO: In paper they say "+ constant"
     return tf.add(term1,term2)
-
-# This does not work
-def accuracy(y_true, logits):
-    #print("y_true.shape", y_true.get_shape().as_list())
-    y_pred = tf.nn.softmax(logits)
-    y_true_onehot = tf.one_hot(tf.cast(y_true, tf.int32), 10)
-    return keras.metrics.categorical_accuracy(y_true_onehot, y_pred)
 
 class EnsembleModel(object):
     def __init__(self, parameters):
@@ -66,7 +48,6 @@ class EnsembleModel(object):
         for i in range(self.M):
             self.models.append(create_model(network_shape))
 
-
         # Compile the ensemble
 
         # "We used batch size of 100 and Adam optimizer with fixed learning rate of
@@ -75,19 +56,57 @@ class EnsembleModel(object):
         for i in range(self.M):
             self.models[i].compile(optimizer=AdamOptimizer,
             loss=loss)
+            #self.models[i].summary()
 
     def train(self, x_train, y_train, x_val, y_val):
         if self.type == 'CLASSIFICATION':
-            es = keras.callbacks.EarlyStopping(monitor='val_loss',
-                                          min_delta=0,
-                                          patience=2,
-                                          verbose=0, mode='auto')
+
+            datagen = keras.preprocessing.image.ImageDataGenerator(
+                 featurewise_center=False,  # set input mean to 0 over the dataset
+                 samplewise_center=False,  # set each sample mean to 0
+                 featurewise_std_normalization=False,  # divide inputs by std of the dataset
+                 samplewise_std_normalization=False,  # divide each input by its std
+                 zca_whitening=False,  # apply ZCA whitening
+                 zca_epsilon=1e-06,  # epsilon for ZCA whitening
+                 rotation_range=0,  # randomly rotate images in the range (degrees, 0 to 180)
+                 # randomly shift images horizontally (fraction of total width)
+                 width_shift_range=0.1,
+                 # randomly shift images vertically (fraction of total height)
+                 height_shift_range=0.1,
+                 shear_range=0.,  # set range for random shear
+                 zoom_range=0.,  # set range for random zoom
+                 channel_shift_range=0.,  # set range for random channel shifts
+                 # set mode for filling points outside the input boundaries
+                 fill_mode='nearest',
+                 cval=0.,  # value used for fill_mode = "constant"
+                 horizontal_flip=True,  # randomly flip images
+                 vertical_flip=False,  # randomly flip images
+                 # set rescaling factor (applied before any other transformation)
+                 rescale=None,
+                 # set function that will be applied on each input
+                 preprocessing_function=None,
+                 # image data format, either "channels_first" or "channels_last"
+                 data_format=None,
+                 # fraction of images reserved for validation (strictly between 0 and 1)
+                 validation_split=0.0)
+
+             # Compute quantities required for feature-wise normalization
+             # (std, mean, and principal components if ZCA whitening is applied).
+            datagen.fit(x_train)
+
+            #datagen.fit(x_train)
 
             for i in range(self.M):
                 print("\nTraining model " + str(i) + ":")
-                history = self.models[i].fit(x_train, y_train, validation_data=(x_val, y_val),
-                epochs=self.epochs, batch_size=self.batch_size, shuffle=True,
-                callbacks=[es])
+                #history = self.models[i].fit(x_train, y_train, validation_data=(x_val, y_val),
+                #epochs=self.epochs, batch_size=self.batch_size, shuffle=True, verbose=1)
+                history = self.models[i].fit_generator(datagen.flow(x_train, y_train, self.batch_size),
+                                                       steps_per_epoch = (x_train.shape[0]/self.batch_size),
+                                                       epochs = self.epochs,
+                                                       validation_data=(x_val, y_val),
+                                                       verbose=2)
+
+
             return history # Returning history of last net. Should be similar anyway?
         elif self.type == 'REGRESSION':
             num_train_examples = y_train.shape[0]
@@ -113,7 +132,9 @@ class EnsembleModel(object):
             for i in range(self.M):
                 print("\nTraining model " + str(i) + ":")
                 history = self.models[i].fit(x_train, y_train_padded, validation_data=validation_data,
-                epochs=self.epochs, batch_size=self.batch_size, shuffle=True)
+                epochs=self.epochs, batch_size=self.batch_size, shuffle=True, verbose=0)
+                #model.summary()
+
             return history # Returning history of last net. Should be similar anyway?
 
 
@@ -140,9 +161,6 @@ class EnsembleModel(object):
 
             means_predicted = predictions[:,0,:]
             means = np.mean(means_predicted, axis=1)
-            #print("predictions.shape: ", predictions.shape,
-            #      "means_predicted.shape: ", means_predicted.shape,
-            #      "means.shape: ", means.shape)
 
             # The variance for ensemble is much larger than for a single one.
             # Maybe problem in average here?
@@ -157,7 +175,7 @@ class EnsembleModel(object):
 
     def evaluate_all(self, x_test, y_test):
         if self.type == 'CLASSIFICATION':
-            #Check predictions of each individual NN and the total
+            # Check predictions of each individual NN and the total
             for i in range(self.M):
                 print()
                 loss, acc = self.models[i].evaluate(x_test, y_test)
@@ -181,7 +199,7 @@ class EnsembleModel(object):
                 y_pred = tf.nn.softmax(self.predict(x_test, M))
                 nll = keras.losses.sparse_categorical_crossentropy(y_test, y_pred)
                 nll = tf.reduce_mean(nll).eval()
-                print("NLL of ensemble model: ", nll)
+                print("NLL of teacher: ", nll)
                 return nll
         elif self.type == 'REGRESSION':
             predictions = self.predict(x_test, M)
@@ -196,11 +214,21 @@ class EnsembleModel(object):
             print("\nNLL of teacher: ", nll)
             return nll
 
-#    def brier_score(self, sess, x_test, y_test, M):
-#        with sess.as_default():
-#            y_pred = tf.nn.softmax(self.predict(x_test, M))
-#            y_true = np.eye(self.K)[y_test]
-#            bs = tf.reduce_mean(tf.keras.losses.mean_squared_error(y_true, y_pred)).eval()
-#            print("\nBrier score of ensemble model: ", bs)
-#            return bs
+
+    def RMSE(self, sess, x_test, y_test, M):
+        if self.type == 'REGRESSION':
+            predictions = self.predict(x_test, M)
+            means = predictions[:,0]
+
+            rmse = np.sqrt( np.mean( (y_test - means)**2 ) )
+            print("\nRMSE of teacher: ", rmse)
+            return rmse
+
+    def brier_score(self, sess, x_test, y_test, M):
+        with sess.as_default():
+            y_pred = tf.nn.softmax(self.predict(x_test, M))
+            y_true = np.eye(self.K)[y_test]
+            bs = tf.reduce_mean(tf.keras.losses.mean_squared_error(y_true, y_pred)).eval()
+            print("\nBrier score of teacher: ", bs)
+            return bs
 

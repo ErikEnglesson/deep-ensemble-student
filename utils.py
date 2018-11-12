@@ -7,6 +7,22 @@ matplotlib.use('GTK3Cairo')
 from matplotlib import pyplot as plt
 
 
+def create_validation_set(x_train, y_train, num_validation):
+    # --  Shuffle training data --
+    #p = np.random.permutation(x_train.shape[0])
+    #x_train = x_train[p,:,:]
+    #y_train = y_train[p]
+
+    # -- Extract validation set --
+    x_val = x_train[:num_validation, :,:]
+    y_val = y_train[:num_validation]
+
+    # -- Update training set --
+    x_train_new = x_train[num_validation:,:,:]
+    y_train_new = y_train[num_validation:]
+
+    return (x_train_new, y_train_new), (x_val, y_val)
+
 # "The data sets are  normalized  so  that  the  input  features  and  the
 #    targets have zero mean and unit variance in the training set"
 def normalize(x_train, y_train, x_test, y_test):
@@ -24,6 +40,7 @@ def normalize(x_train, y_train, x_test, y_test):
     if x_test is not None:
         x_test_n = x_test - x_train_mean
         x_test_n /= x_train_std
+
     # y_test -= y_train_mean
     # y_test /= y_train_std
     return (x_train_n, y_train), (x_test_n, y_test)
@@ -39,29 +56,58 @@ def load_data(seed, test_split, name):
         x_train = np.random.uniform(-4.0,4.0,20)
         y_train = np.power(x_train,3) + np.random.normal(0, 3,20)
 
-        x_test = None
-        y_test = None
+        x_test = np.random.uniform(-4.0,4.0,10)
+        y_test = np.power(x_test,3) + np.random.normal(0, 3,10)
 
     if name == 'boston':
         boston_housing = keras.datasets.boston_housing
         (x_train, y_train), (x_test, y_test) = boston_housing.load_data(seed=seed,test_split=test_split)
+
+    #https://github.com/MaxInGaussian/SCFGP/blob/master/experiments/kin8nm/kin8nm.py
+    if name == 'kin8nm':
+        from sklearn import datasets
+        from sklearn import model_selection
+        from sklearn.utils import shuffle
+
+        kin8nm = datasets.fetch_mldata('regression-datasets kin8nm')
+        X, y = kin8nm.data[:, :-1], kin8nm.data[:, -1]
+        y = y[:, None]
+        X = X.astype(np.float64)
+
+        X, y = shuffle(X,y, random_state=seed)
+        X_train, X_test, y_train, y_test = \
+            model_selection.train_test_split(X, y, test_size=test_split)
+        y_train = y_train.reshape(y_train.shape[0],)
+        y_test  = y_test.reshape(y_test.shape[0],)
+        return (X_train, y_train), (X_test, y_test)
 
     if name == 'mnist':
         mnist = keras.datasets.mnist
         (x_train, y_train),(x_test, y_test) = mnist.load_data()
         x_train, x_test = x_train / 255.0, x_test / 255.0
 
+    if name == 'cifar10':
+        cfar10 = keras.datasets.cifar10
+        (x_train, y_train),(x_test, y_test) = cfar10.load_data()
+        x_train, x_test = x_train / 255.0, x_test / 255.0
+        x_train = np.float32(x_train)
+        x_test = np.float32(x_test)
+
     #x_train, y_train, x_test, y_test = normalize(x_train, y_train, x_test, y_test)
 
     return (x_train, y_train), (x_test, y_test)
 
-def get_network_shape(x_train, name):
+def get_network_shape(name):
     if name == 'toy':
         network_shape = (1,100,2)
     elif name == 'boston':
-        network_shape = (x_train.shape[1],50,2)
+        network_shape = (13,50,2)
     elif name == 'mnist':
-        network_shape = (784, 200, 200, 200, 10)
+        network_shape = ((28,28,), 200, 200, 200, 10)
+    elif name == 'kin8nm':
+        network_shape = (8,50,2)
+    elif name == 'cifar10':
+        network_shape = ( (32,32,3,),50,10)
     else:
         assert(False)
 
@@ -73,12 +119,12 @@ def toy_plots(x_true, y_true, x_true_n, x_train, y_train, y_pred_teacher, y_pred
     y_pred_teacher_std3 = 3.0 * np.sqrt(y_pred_teacher[:,1])
 
     # Plot results
+    plt.figure(1)
     plt.plot(x_true, y_pred_teacher_mean, '#000000')
     plt.fill_between(x_true, y_pred_teacher_mean-y_pred_teacher_std3,
                              y_pred_teacher_mean+y_pred_teacher_std3,
                      alpha=0.5, edgecolor='#4d4d4d', facecolor='#BEBEBE')
 
-    plt.figure(1)
     plt.plot(x_true,y_true)
     plt.plot(x_train, y_train, 'bo')
     plt.title('Toy example - Teacher')
@@ -105,104 +151,153 @@ def toy_plots(x_true, y_true, x_true_n, x_train, y_train, y_pred_teacher, y_pred
     plt.legend(['student', 'y=x^3'], loc='upper left')
     plt.show()
 
-def classification_plots(num_nets, max_nets, err_history, nll_history, teacher_history):
+def classification_plots(num_nets, max_nets, history):
 
-    if(len(err_history['student'])==0):
-        plt.figure(1)
-        plt.subplot(121)
-        plt.xlabel('Number of nets')
-        plt.title('Classification Error for Teacher')
-        red, = plt.plot(num_nets, err_history['teacher'], 'r')
-        plt.xticks(np.arange(0, max_nets+1, 5))
-        plt.yticks(np.arange(1.0, 2.4, 0.2))
+    plt.figure(1)
+    plt.subplot(131)
+    plt.xlabel('Number of nets')
+    plt.title('Classification Error - Validation Set')
+    red,  = plt.plot(num_nets, history['err-teacher-v'], 'r')
+    blue, = plt.plot(num_nets, history['err-student-v'], 'b')
+    plt.legend([red,blue], ['Teacher', 'Student'])
+    plt.xticks(np.arange(0, max_nets+1, 5))
+    #plt.yticks(np.arange(1.0, 2.4, 0.2))
 
-        plt.subplot(122)
-        plt.xlabel('Number of nets')
-        plt.title('NLL for teacher')
-        red, = plt.plot(num_nets, nll_history['teacher'], 'r')
-        plt.xticks(np.arange(0, max_nets+1, 5))
-        plt.yticks(np.arange(0.02, 0.16, 0.02))
+    plt.subplot(132)
+    plt.xlabel('Number of nets')
+    plt.title('NLL - Validation Set')
+    red,  = plt.plot(num_nets, history['nll-teacher-v'], 'r')
+    blue, = plt.plot(num_nets, history['nll-student-v'], 'b')
+    plt.legend([red,blue, green], ['Teacher', 'Student'])
+    plt.xticks(np.arange(0, max_nets+1, 5))
+    #plt.yticks(np.arange(0.02, 0.16, 0.02))
 
-        #plt.subplot(133)
-        #plt.xlabel('Number of nets')
-        #plt.title('Brier Score')
-        #red, = plt.plot(num_nets, ensemble_brier, 'r')
-        #blue, = plt.plot(num_nets, distilled_brier, 'b')
-        #plt.legend([red,blue], ['Ensemble', 'Distilled'])
-        #plt.xticks(np.arange(0, max_nets+1, 5))
-        #plt.yticks(np.arange(0.0014, 0.0034, 0.0002))
+    plt.subplot(133)
+    plt.xlabel('Number of nets')
+    plt.title('Brier Score - Validation Set')
+    red,  = plt.plot(num_nets, history['brier-teacher-v'], 'r')
+    blue, = plt.plot(num_nets, history['brier-student-v'], 'b')
+    plt.legend([red,blue], ['Teacher', 'Student'])
+    plt.xticks(np.arange(0, max_nets+1, 5))
+    #plt.yticks(np.arange(0.0014, 0.0034, 0.0002))
 
-        plt.figure(2)
-        plt.plot(teacher_history.history['loss'])
-        plt.plot(teacher_history.history['val_loss'])
-            #labels.append('loss ' + str(batch_size))
-            #labels.append('loss_val ' + str(batch_size))
+    plt.figure(4)
+    plt.subplot(131)
+    plt.xlabel('Number of nets')
+    plt.title('Classification Error - Test Set')
+    red,  = plt.plot(num_nets, history['err-teacher-test'], 'r')
+    blue, = plt.plot(num_nets, history['err-student-test'], 'b')
+    plt.legend([red,blue], ['Teacher', 'Student'])
+    #plt.xticks(np.arange(0, max_nets+1, 5))
+    #plt.yticks(np.arange(1.0, 2.4, 0.2))
 
-        plt.title('teacher loss')
-        plt.ylabel('loss')
-        plt.xlabel('epoch')
-        plt.legend(['train', 'validation'], loc='upper left')
+    plt.subplot(132)
+    plt.xlabel('Number of nets')
+    plt.title('NLL - Test Set')
+    red,  = plt.plot(num_nets, history['nll-teacher-test'], 'r')
+    blue, = plt.plot(num_nets, history['nll-student-test'], 'b')
+    plt.legend([red,blue, green], ['Teacher', 'Student'])
+    #plt.xticks(np.arange(0, max_nets+1, 5))
+    #plt.yticks(np.arange(0.02, 0.16, 0.02))
 
-        #plt.legend(labels)
-        #plt.show()
+    plt.subplot(133)
+    plt.xlabel('Number of nets')
+    plt.title('Brier Score -- Test Set')
+    red,  = plt.plot(num_nets, history['brier-teacher-test'], 'r')
+    blue, = plt.plot(num_nets, history['brier-student-test'], 'b')
+    plt.legend([red,blue], ['Teacher', 'Student'])
+    #plt.xticks(np.arange(0, max_nets+1, 5))
+    #plt.yticks(np.arange(0.0014, 0.0034, 0.0002))
 
-        plt.show()
-    else:
-        plt.figure(1)
-        plt.subplot(121)
-        plt.xlabel('Number of nets')
-        plt.title('Classification Error')
-        red, = plt.plot(num_nets, err_history['teacher'], 'r')
-        blue, = plt.plot(num_nets, err_history['student'], 'b')
-        plt.legend([red,blue], ['Teacher', 'Student'])
-        plt.xticks(np.arange(0, max_nets+1, 5))
-        plt.yticks(np.arange(1.0, 2.4, 0.2))
+    plt.show()
 
-        plt.subplot(122)
-        plt.xlabel('Number of nets')
-        plt.title('NLL')
-        red, = plt.plot(num_nets, nll_history['teacher'], 'r')
-        blue, = plt.plot(num_nets, nll_history['student'], 'b')
-        plt.legend([red,blue], ['Teacher', 'Student'])
-        plt.xticks(np.arange(0, max_nets+1, 5))
-        plt.yticks(np.arange(0.02, 0.16, 0.02))
 
-        #plt.subplot(133)
-        #plt.xlabel('Number of nets')
-        #plt.title('Brier Score')
-        #red, = plt.plot(num_nets, ensemble_brier, 'r')
-        #blue, = plt.plot(num_nets, distilled_brier, 'b')
-        #plt.legend([red,blue], ['Ensemble', 'Distilled'])
-        #plt.xticks(np.arange(0, max_nets+1, 5))
-        #plt.yticks(np.arange(0.0014, 0.0034, 0.0002))
+def create_classification_model_student(parameters):
 
-        plt.figure(2)
-        plt.plot(teacher_history.history['loss'])
-        plt.plot(teacher_history.history['val_loss'])
-            #labels.append('loss ' + str(batch_size))
-            #labels.append('loss_val ' + str(batch_size))
+    network_shape    = parameters['network_shape']
+    dr1 = parameters['dropout_rate1']
+    dr2 = parameters['dropout_rate2']
+    dr3 = parameters['dropout_rate3']
 
-        plt.title('teacher loss')
-        plt.ylabel('loss')
-        plt.xlabel('epoch')
-        plt.legend(['train', 'validation'], loc='upper left')
+    model = keras.models.Sequential()
+    model.add(keras.layers.Conv2D(32, (3, 3), padding='same',
+                     input_shape=network_shape[0]))
+    model.add(keras.layers.Activation('relu'))
+    model.add(keras.layers.Conv2D(32, (3, 3)))
+    model.add(keras.layers.Activation('relu'))
+    model.add(keras.layers.MaxPooling2D(pool_size=(2, 2)))
+    model.add(keras.layers.Dropout(dr1))
 
-        #plt.legend(labels)
-        #plt.show()
+    model.add(keras.layers.Conv2D(64, (3, 3), padding='same'))
+    model.add(keras.layers.Activation('relu'))
+    model.add(keras.layers.Conv2D(64, (3, 3)))
+    model.add(keras.layers.Activation('relu'))
+    model.add(keras.layers.MaxPooling2D(pool_size=(2, 2)))
+    model.add(keras.layers.Dropout(dr2))
 
-        plt.show()
+    model.add(keras.layers.Flatten())
+    model.add(keras.layers.Dense(512))
+    model.add(keras.layers.Activation('relu'))
+    model.add(keras.layers.Dropout(dr3))
+    model.add(keras.layers.Dense(10))
+    #model.add(keras.layers.Activation('softmax'))
+    return model
 
 def create_classification_model(network_shape):
+    from tensorflow.keras import regularizers
+    """
+    lambd = 0.01
+    drop_rate = 0.225
     return keras.models.Sequential([
-           keras.layers.Flatten(input_shape=(28,28,)),
-           keras.layers.Dense(200, activation=tf.nn.relu),
+           keras.layers.Flatten(input_shape=network_shape[0]),
+           keras.layers.Dense(200, activation=tf.nn.relu),#, kernel_regularizer=regularizers.l2(lambd)),
+           keras.layers.Dropout(drop_rate),
            keras.layers.BatchNormalization(),
-           keras.layers.Dense(200, activation=tf.nn.relu),
+           keras.layers.Dense(200, activation=tf.nn.relu),#, kernel_regularizer=regularizers.l2(lambd)),
+           keras.layers.Dropout(drop_rate),
            keras.layers.BatchNormalization(),
-           keras.layers.Dense(200, activation=tf.nn.relu),
+           keras.layers.Dense(200, activation=tf.nn.relu),#, kernel_regularizer=regularizers.l2(lambd)),
+           keras.layers.Dropout(drop_rate),
            keras.layers.BatchNormalization(),
-           keras.layers.Dense(10)
+           keras.layers.Dense(10)#, kernel_regularizer=regularizers.l2(lambd))
            ])
+
+    """
+    model = keras.models.Sequential()
+    model.add(keras.layers.Conv2D(32, (3, 3), padding='same',
+                     input_shape=network_shape[0]))
+    model.add(keras.layers.Activation('relu'))
+    model.add(keras.layers.Conv2D(32, (3, 3)))
+    model.add(keras.layers.Activation('relu'))
+    model.add(keras.layers.MaxPooling2D(pool_size=(2, 2)))
+    model.add(keras.layers.Dropout(0.25))
+
+    model.add(keras.layers.Conv2D(64, (3, 3), padding='same'))
+    model.add(keras.layers.Activation('relu'))
+    model.add(keras.layers.Conv2D(64, (3, 3)))
+    model.add(keras.layers.Activation('relu'))
+    model.add(keras.layers.MaxPooling2D(pool_size=(2, 2)))
+    model.add(keras.layers.Dropout(0.25))
+
+    model.add(keras.layers.Flatten())
+    model.add(keras.layers.Dense(512))
+    model.add(keras.layers.Activation('relu'))
+    model.add(keras.layers.Dropout(0.5))
+    model.add(keras.layers.Dense(10))
+    #model.add(keras.layers.Activation('softmax'))
+    return model
+
+
+    #return keras.models.Sequential([
+    #       keras.layers.Flatten(input_shape=network_shape[0]),
+    #       keras.layers.Dense(200, activation=tf.nn.relu),
+    #       keras.layers.BatchNormalization(),
+    #       keras.layers.Dense(200, activation=tf.nn.relu),
+    #       keras.layers.BatchNormalization(),
+    #       keras.layers.Dense(200, activation=tf.nn.relu),
+    #       keras.layers.BatchNormalization(),
+    #       keras.layers.Dense(10)
+    #       ])
 
 """
 "We use the identical network architecture: 1-hidden layer NN with ReLU

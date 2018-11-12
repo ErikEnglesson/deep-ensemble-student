@@ -49,6 +49,3 @@ plt.xlabel('epoch')
 plt.legend(['train loss', 'validation loss', 'train nll', 'validation nll'], loc='upper right')
 plt.show()
 
-
-
-

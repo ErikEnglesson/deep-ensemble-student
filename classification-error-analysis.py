@@ -93,8 +93,7 @@ history = student.train(x_train, y_train, x_val, y_val, M=1)
 #--------Validation Data-------------
 history = student.train(x_train, y_train, x_val, y_val, M=1)
 
-predictions_teacher = teacher.predict(x_val,1)
-predictions_teacher = softmax(predictions_teacher)
+predictions_teacher = softmax(teacher.predict(x_val,1))
 
 prediction_classes = np.argmax(predictions_teacher, axis = 1)
 wrong_predictions = np.not_equal(prediction_classes,y_val).nonzero()[0]
@@ -118,8 +117,7 @@ print("Student and teacher share ", shared_errors.shape[0], " errors on validati
 print("------")
 
 #--------Training Data-------------
-predictions_teacher = teacher.predict(x_train,1)
-predictions_teacher = softmax(predictions_teacher)
+predictions_teacher = softmax(teacher.predict(x_train,1))
 
 prediction_classes = np.argmax(predictions_teacher, axis = 1)
 wrong_predictions = np.not_equal(prediction_classes,y_train).nonzero()[0]

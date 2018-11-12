@@ -33,11 +33,11 @@ def initialize_teacher_parameters(network_shape, max_nets):
     parameters['ensemble_nets'] = max_nets
     parameters['network_shape'] = network_shape
 
-# These parameters were used for mnist:
-# lr=0.001, bs=1000, e=10
+    # These parameters were used for mnist:
+    # lr=0.001, bs=1000, e=10
 
-# These parameters were used for CIFAR:
-# lr= 0.00001, bs=100, e=50
+    # These parameters were used for CIFAR:
+    # lr= 0.00001, bs=100, e=50
     return parameters
 
 def initialize_student_parameters(teacher_parameters):
@@ -53,6 +53,18 @@ def initialize_student_parameters(teacher_parameters):
     parameters['dropout_rate3'] = 0.5
 
     return parameters
+
+def plot_student_loss(M, num_nets_teacher, student_history):
+    plt.figure(M+num_nets_teacher+10)
+    plt.plot(student_history.history['val_loss'])
+    plt.plot(np.asarray(student_history.history['val_nll_metric']))
+    plt.plot(student_history.history['val_temp_metric'])
+    plt.title('student loss with M: ' + str(M))
+    plt.title('Validation NLL')
+    plt.ylabel('NLL')
+    plt.xlabel('epoch')
+    plt.legend(['validation loss', 'validation nll', 'validation temp'], loc='upper right')
+
 
 #------------------------------------------------------------------------------
 
@@ -119,15 +131,7 @@ for M in num_nets:
     print("\n\nNumber of nets: ", M)
 
     if debug_student_plots:
-        plt.figure(M+num_nets_teacher+10)
-        plt.plot(student_history.history['val_loss'])
-        plt.plot(np.asarray(student_history.history['val_nll_metric']))
-        plt.plot(student_history.history['val_temp_metric'])
-        plt.title('student loss with M: ' + str(M))
-        plt.title('Validation NLL')
-        plt.ylabel('NLL')
-        plt.xlabel('epoch')
-        plt.legend(['validation loss', 'validation nll', 'validation temp'], loc='upper right')
+        plot_student_loss(M, num_nets_teacher, student_history)
 
     # Uses the M first nets in teacher to calculate error, NLL and Brier score
     history['nll-teacher-v'].append(teacher.NLL(sess, x_val, y_val, M))
@@ -135,7 +139,6 @@ for M in num_nets:
     print("NLL of student: ", student_history.history['val_nll_metric'][-1])
     history['nll-teacher-test'].append(teacher.NLL(sess, x_test, y_test, M))
     history['nll-student-test'].append(student.NLL(sess, x_test, y_test))
-
 
     history['err-teacher-v'].append((1.0 - teacher.accuracy(sess, x_val, y_val, M))*100)
     history['err-student-v'].append((1.0 - student.accuracy(sess, x_val, y_val))*100)

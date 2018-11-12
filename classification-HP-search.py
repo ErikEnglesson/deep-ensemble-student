@@ -99,6 +99,8 @@ def generate_random_student_parameters(student_parameters):
     student_parameters['batch_size']    = batch_sizes[np.random.randint(0,  len(batch_sizes))]
     student_parameters['loss_weight']   = loss_weights[np.random.randint(0, len(loss_weights))]#np.random.randint(0,11) / 10.0 # one of 0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9
     student_parameters['temperature']   = temperatures[np.random.randint(0, len(temperatures))]
+
+    # Only used for the CNN when using CIFAR-10
     student_parameters['dropout_rate1'] = dropout_rates[np.random.randint(0, len(dropout_rates))]
     student_parameters['dropout_rate2'] = dropout_rates[np.random.randint(0, len(dropout_rates))]
     student_parameters['dropout_rate3'] = dropout_rates[np.random.randint(0, len(dropout_rates))]

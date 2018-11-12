@@ -48,12 +48,12 @@ class ClassificationStudentModel(AbstractStudentModel):
 
     def knowledge_distillation_loss_classification(self, y_true, y_pred):
 
-        # First 10 are logits of the ensemble
+        # First 10 are logits of the teacher
         # Last 10 are the onehot true labels
         y_true_logits = y_true[:, :10]
         y_true_onehot = y_true[:, 10:]
 
-        # Add temperature to output of ensemble model
+        # Add temperature to output of teacher model
         y_true_temperature = keras.activations.softmax(y_true_logits/self.T)
 
         # y_pred is of shape (X, 20)
@@ -62,17 +62,13 @@ class ClassificationStudentModel(AbstractStudentModel):
         y_pred_prob = y_pred[:, :10]
         y_pred_temperature = y_pred[:, 10:]
 
-        #loss1 = keras.losses.categorical_crossentropy(y_true_temperature, y_pred_temperature)
-        loss1 = keras.losses.categorical_crossentropy(y_true_temperature, y_pred_prob)
+        loss1 = keras.losses.categorical_crossentropy(y_true_temperature, y_pred_temperature)
         loss2 = keras.losses.categorical_crossentropy(y_true_onehot, y_pred_prob)
 
-        #return tf.add(loss1,tf.multiply(self.loss_weight,loss2)) # much better together
-        #loss1_weighted = tf.multiply( self.T*(1.0 - self.loss_weight), loss1)
         loss1_weighted = tf.multiply( self.T*self.T*(1.0 - self.loss_weight), loss1)
         loss2_weighted = tf.multiply(       self.loss_weight, loss2)
 
         return tf.add(loss1_weighted, loss2_weighted)
-        #return loss1
 
     def __init__(self, teacher, parameters):
 

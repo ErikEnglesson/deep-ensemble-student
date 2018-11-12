@@ -62,9 +62,7 @@ def initialize_student_parameters(teacher_parameters):
 
     return parameters
 
-
 dataset_name = 'kin8nm'
-
 
 network_shape = get_network_shape(dataset_name)
 teacher_parameters = initialize_teacher_parameters(network_shape)
@@ -77,7 +75,6 @@ loss_weights = [0.1, 0.5, 0.9]
 # Lists to store the parameters and their nll
 nlls = list()
 parameters = list()
-
 
 # Optimization
 num_subiterations = 5
